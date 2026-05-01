@@ -1,0 +1,6 @@
+{
+  "name": "Basketball Torneo Control",
+  "description": "Gestión de torneos de baloncesto: tablas de posiciones, calendarios, marcadores en tiempo real y generación de pósters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
