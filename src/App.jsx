@@ -255,28 +255,35 @@ export default function App() {
   const [venue,setVenue] = useState(saved?.venue ?? "Salon Seno Zulema");
   const [tourney,setTourney] = useState(saved?.tourney ?? "TORNEO RELAMPAGO 2025");
   const [logos,setLogos] = useState(loadLogos);
-  const sundays = useMemo(() => getUpcomingSundays(12), []);
-  const [selSun,setSelSun] = useState(0);
-  const [posterSun,setPosterSun] = useState(0);
+  const [selDate,setSelDate] = useState(isoDate(new Date()));
   const [catFilter,setCatFilter] = useState("Todos");
-  const [newGame,setNewGame] = useState({team1:"",team2:"",time:"10:00",category:"Masculino",round:"Fase Regular"});
+  const [newGame,setNewGame] = useState({team1:"",team2:"",date:isoDate(new Date()),time:"10:00",category:"Masculino",round:"Fase Regular"});
   const [selGameId,setSelGameId] = useState(null);
   const [scores,setScores] = useState({s1:"",s2:""});
   const [newTeam,setNewTeam] = useState({name:"",category:"Masculino"});
   const fileInputRef = useRef(null);
   const [uploadingFor,setUploadingFor] = useState(null);
 
-  // AI State
   const [aiAnalysis, setAiAnalysis] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   useEffect(() => { saveState({teams,games,venue,tourney}); }, [teams,games,venue,tourney]);
 
-  const gamesOn = (idx) => games.filter(g=>g.date===isoDate(sundays[idx])).sort((a,b)=>a.time.localeCompare(b.time));
+  // Unique dates from games
+  const gameDates = useMemo(() => {
+    const dates = [...new Set(games.map(g => g.date))].sort();
+    const today = isoDate(new Date());
+    if (dates.length === 0) return [today];
+    return dates;
+  }, [games]);
+
+  const gamesOn = (date) => games.filter(g=>g.date===date).sort((a,b)=>a.time.localeCompare(b.time));
 
   useEffect(() => {
-    const firstIdx = sundays.findIndex((_,i) => gamesOn(i).length > 0);
-    if (firstIdx !== -1) setPosterSun(firstIdx);
+    // If current selected date has no games, default to the first date with games if available
+    if (games.length > 0 && gamesOn(selDate).length === 0) {
+      setSelDate(gameDates[0]);
+    }
   }, [games]);
 
   const standings = useMemo(() =>
@@ -317,10 +324,8 @@ export default function App() {
 
   const addGame = () => {
     if(!newGame.team1||!newGame.team2||newGame.team1===newGame.team2) return;
-    const d=isoDate(sundays[selSun]);
-    if(games.filter(g=>g.date===d).length>=4){alert("Maximo 4 partidos por domingo.");return;}
-    setGames(p=>[...p,{id:Date.now(),date:d,time:newGame.time,team1:+newGame.team1,team2:+newGame.team2,category:newGame.category,round:newGame.round,score1:null,score2:null,completed:false}]);
-    setNewGame({team1:"",team2:"",time:"10:00",category:"Masculino",round:"Fase Regular"});
+    setGames(p=>[...p,{id:Date.now(),date:newGame.date,time:newGame.time,team1:+newGame.team1,team2:+newGame.team2,category:newGame.category,round:newGame.round,score1:null,score2:null,completed:false}]);
+    setNewGame({team1:"",team2:"",date:newGame.date,time:"10:00",category:"Masculino",round:"Fase Regular"});
   };
 
   const recordScore = () => {
@@ -365,7 +370,7 @@ export default function App() {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const contextStandings = standings.map(t => `${t.name} (${t.category}): ${t.pts} pts, ${t.wins}G-${t.losses}P`).join("\n");
-      const contextGames = gamesOn(selSun).map(g => {
+      const contextGames = gamesOn(selDate).map(g => {
          const t1 = getTeam(g.team1);
          const t2 = getTeam(g.team2);
          return `${g.time} - ${t1?.name} vs ${t2?.name} (${g.category} - ${g.round})`;
@@ -376,7 +381,7 @@ export default function App() {
 TABLA DE POSICIONES:
 ${contextStandings}
 
-PARTIDOS PRÓXIMA FECHA (${formatDateES(sundays[selSun])}):
+PARTIDOS PRÓXIMA FECHA (${formatDateES(new Date(selDate + "T12:00:00"))}):
 ${contextGames}
 
 Genera un resumen breve y profesional (en español) que incluya:
@@ -497,27 +502,95 @@ Genera un resumen breve y profesional (en español) que incluya:
 
         {/* CALENDARIO */}
         {tab==="schedule" && <>
-          <div className="suns">{sundays.map((s,i)=>{const cnt=gamesOn(i).length;return<div key={i} className={`sun ${selSun===i?"on":""}`} onClick={()=>setSelSun(i)}><div className="d">{s.getDate()}</div><div className="m">{MONTHS_S[s.getMonth()]}</div><div className="gc">{cnt}/4</div></div>;})}</div>
           <div className="card">
-            <div className="card-ttl">{formatDateES(sundays[selSun])}</div>
-            <div className="fr"><label className="lbl">Cancha / Lugar</label><input className="inp" value={venue} onChange={e=>setVenue(e.target.value)} placeholder="Lugar del partido..." /></div>
+            <div className="card-ttl">Jornadas Programadas</div>
+            <div className="suns">
+              {gameDates.map((d)=>{
+                const dt = new Date(d + "T12:00:00");
+                const count = gamesOn(d).length;
+                return <div key={d} className={`sun ${selDate===d?"on":""}`} onClick={()=>setSelDate(d)}>
+                  <div className="d">{dt.getDate()}</div>
+                  <div className="m">{MONTHS_S[dt.getMonth()]}</div>
+                  <div className="gc">{count} part.</div>
+                </div>;
+              })}
+            </div>
+            <div className="fr"><label className="lbl">Lugar / Cancha</label><input className="inp" value={venue} onChange={e=>setVenue(e.target.value)} placeholder="Ej: Cancha Central" /></div>
             <hr className="divider" />
-            {gamesOn(selSun).length===0
-              ? <div className="empty"><div className="empty-t">Sin partidos agendados</div></div>
-              : gamesOn(selSun).map(g=>{const t1=getTeam(g.team1),t2=getTeam(g.team2);if(!t1||!t2)return null;return<div key={g.id} className={`game ${g.completed?"done":""}`}><div className="gm-meta"><select className="t-sel" value={g.time} onChange={e=>updateTime(g.id,e.target.value)}>{TIME_SLOTS.map(t=><option key={t} value={t}>{t}</option>)}</select><span className={`rnd ${g.round==="Final"?"rnd-fin":""}`}>{g.round}</span><span className={`cat ${g.category==="Masculino"?"cat-m":"cat-f"}`}>{g.category}</span>{!g.completed&&<button className="btn btn-d" onClick={()=>removeGame(g.id)}>X</button>}{g.completed&&<span style={{fontSize:"10px",color:"var(--green)",fontWeight:600}}>Jugado</span>}</div><div className="matchup"><div className="team-s"><TeamLogo teamId={t1.id} size="sm"/><div className="team-nm">{t1.name}</div></div><div className="sc-area">{g.completed?<><div className={`sc ${g.score1>g.score2?"sc-w":"sc-l"}`}>{g.score1}</div><div className="vs">-</div><div className={`sc ${g.score2>g.score1?"sc-w":"sc-l"}`}>{g.score2}</div></>:<div className="vs" style={{fontSize:"15px"}}>VS</div>}</div><div className="team-s" style={{textAlign:"right"}}><TeamLogo teamId={t2.id} size="sm"/><div className="team-nm">{t2.name}</div></div></div></div>;})}
-            {gamesOn(selSun).length<4 && <>
-              <hr className="divider" />
-              <div style={{fontFamily:"'Oswald',sans-serif",fontSize:"12px",fontWeight:600,letterSpacing:"2px",textTransform:"uppercase",color:"var(--gold)",marginBottom:"12px"}}>Agregar Partido</div>
-              <div className="g2">
-                <div className="fr"><label className="lbl">Equipo 1</label><select className="sel" value={newGame.team1} onChange={e=>setNewGame({...newGame,team1:e.target.value})}><option value="">Seleccionar...</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-                <div className="fr"><label className="lbl">Equipo 2</label><select className="sel" value={newGame.team2} onChange={e=>setNewGame({...newGame,team2:e.target.value})}><option value="">Seleccionar...</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-                <div className="fr"><label className="lbl">Horario</label><select className="sel" value={newGame.time} onChange={e=>setNewGame({...newGame,time:e.target.value})}>{TIME_SLOTS.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-                <div className="fr"><label className="lbl">Categoria</label><select className="sel" value={newGame.category} onChange={e=>setNewGame({...newGame,category:e.target.value})}><option>Masculino</option><option>Femenino</option></select></div>
+            
+            <div style={{fontFamily:"'Oswald',sans-serif",fontSize:"13px",fontWeight:600,letterSpacing:"2px",textTransform:"uppercase",color:"var(--gold)",marginBottom:"16px"}}>Programar Partido</div>
+            
+            <div className="fr">
+              <label className="lbl">Fecha</label>
+              <input type="date" className="inp" value={newGame.date} onChange={e=>setNewGame({...newGame,date:e.target.value})} />
+            </div>
+
+            <div className="g2">
+              <div className="fr">
+                <label className="lbl">Equipo 1</label>
+                <select className="sel" value={newGame.team1} onChange={e=>setNewGame({...newGame,team1:e.target.value})}>
+                  <option value="">Seleccionar...</option>
+                  {teams.map(t=><option key={t.id} value={t.id}>{t.name} ({t.category[0]})</option>)}
+                </select>
               </div>
-              <div className="fr"><label className="lbl">Fase / Ronda</label><select className="sel" value={newGame.round} onChange={e=>setNewGame({...newGame,round:e.target.value})}>{ROUNDS.map(r=><option key={r}>{r}</option>)}</select></div>
-              <button className="btn btn-p btn-full" onClick={addGame}>AGREGAR PARTIDO</button>
-            </>}
-            {gamesOn(selSun).length>=4 && <div className="warn" style={{marginTop:"10px"}}>Limite de 4 partidos alcanzado</div>}
+              <div className="fr">
+                <label className="lbl">Equipo 2</label>
+                <select className="sel" value={newGame.team2} onChange={e=>setNewGame({...newGame,team2:e.target.value})}>
+                  <option value="">Seleccionar...</option>
+                  {teams.map(t=><option key={t.id} value={t.id}>{t.name} ({t.category[0]})</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="g2">
+              <div className="fr">
+                <label className="lbl">Horario</label>
+                <select className="sel" value={newGame.time} onChange={e=>setNewGame({...newGame,time:e.target.value})}>
+                  {TIME_SLOTS.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="fr">
+                <label className="lbl">Ronda</label>
+                <select className="sel" value={newGame.round} onChange={e=>setNewGame({...newGame,round:e.target.value})}>
+                  {ROUNDS.map(r=><option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <button className="btn btn-p btn-full" onClick={addGame}>AGREGAR PARTIDO</button>
+          </div>
+
+          <div>
+            <div className="card-ttl">Partidos del {formatDateES(new Date(selDate + "T12:00:00"))}</div>
+            {gamesOn(selDate).length===0
+              ? <div className="empty"><div className="empty-t">No hay partidos para esta fecha</div></div>
+              : gamesOn(selDate).map(g=>{
+                const t1=getTeam(g.team1),t2=getTeam(g.team2);
+                if(!t1||!t2) return null;
+                return <div key={g.id} className={`game ${g.completed?"done":""}`}>
+                  <div className="gm-meta">
+                    <span className="gm-time">{g.time}</span>
+                    <span className={`rnd ${g.round==="Final"?"rnd-fin":""}`}>{g.round}</span>
+                    <span className={`cat ${g.category==="Masculino"?"cat-m":"cat-f"}`}>{g.category}</span>
+                    {!g.completed && <button className="btn-d" onClick={()=>removeGame(g.id)}>Borrar</button>}
+                  </div>
+                  <div className="matchup" onClick={()=>{ if(!g.completed)setSelGameId(g.id); }}>
+                    <div className="team-s">
+                      <TeamLogo teamId={t1.id} size="sm" />
+                      <div className="team-nm">{t1.name}</div>
+                    </div>
+                    <div className="sc-area">
+                      {g.completed ? (
+                        <div className="sc-vals"><span className={`sc ${g.score1>g.score2?"sc-w":"sc-l"}`}>{g.score1}</span><span className="vs">-</span><span className={`sc ${g.score2>g.score1?"sc-w":"sc-l"}`}>{g.score2}</span></div>
+                      ) : <div className="vs">VS</div>}
+                    </div>
+                    <div className="team-s" style={{textAlign:"right"}}>
+                      <TeamLogo teamId={t2.id} size="sm" />
+                      <div className="team-nm">{t2.name}</div>
+                    </div>
+                  </div>
+                </div>;
+              })}
           </div>
         </>}
 
@@ -550,34 +623,42 @@ Genera un resumen breve y profesional (en español) que incluya:
 
         {/* POSTER */}
         {tab==="poster" && <>
-          <div className="suns">{sundays.map((s,i)=>{const cnt=gamesOn(i).length;if(cnt===0)return null;return<div key={i} className={`sun ${posterSun===i?"on":""}`} onClick={()=>setPosterSun(i)}><div className="d">{s.getDate()}</div><div className="m">{MONTHS_S[s.getMonth()]}</div><div className="gc">{cnt} partidos</div></div>;})}</div>
-          {gamesOn(posterSun).length===0
-            ? <div className="empty"><div className="empty-t">Agrega partidos al Calendario para generar el poster</div></div>
-            : <div className="poster-wrap">
-                <button className="btn-print" onClick={()=>window.print()}>IMPRIMIR POSTER</button>
-                <div className="poster" id="poster-print">
-                  {/* Header */}
-                  <div className="poster-hdr">
-                    <div className="poster-city">{venue.split(" ").slice(-2).join(" ") || venue}</div>
-                    <div className="poster-title">{tourney}</div>
-                    <div className="poster-dates">
-                      <span>{MONTHS_L[sundays[posterSun].getMonth()].toUpperCase()} {sundays[posterSun].getFullYear()}</span>
-                      <span>DOMINGO</span>
-                    </div>
-                  </div>
+          <div className="card">
+            <div className="card-ttl">Seleccionar Fecha para el Póster</div>
+            <div className="suns">
+              {gameDates.map((d)=>{
+                const dt = new Date(d + "T12:00:00");
+                return <div key={d} className={`sun ${selDate===d?"on":""}`} onClick={()=>setSelDate(d)}>
+                  <div className="d">{dt.getDate()}</div>
+                  <div className="m">{MONTHS_S[dt.getMonth()]}</div>
+                </div>;
+              })}
+            </div>
+            <button className="btn-print" onClick={()=>window.print()}>GENERAR PÓSTER PDF</button>
+          </div>
+          <div className="poster-wrap">
+            <div className="poster">
+              <div className="poster-hdr">
+                <div className="poster-city">{venue.split(" ").slice(-2).join(" ") || venue}</div>
+                <div className="poster-title">{tourney}</div>
+                <div className="poster-dates">
+                  <span>FECHA: {formatDateES(new Date(selDate + "T12:00:00"))}</span>
+                </div>
+              </div>
 
-                  {/* Games */}
-                  <div style={{padding:"10px 0 0"}}>
-                    {gamesOn(posterSun).map((g)=>{
-                      const t1=getTeam(g.team1), t2=getTeam(g.team2);
-                      if(!t1||!t2) return null;
-                      const logo1=getLogo(t1.id), logo2=getLogo(t2.id);
-                      return <div key={g.id}>
-                        <div className="poster-time-row">
-                           <span className="poster-time-badge">{g.time}</span>
-                          <span className="poster-time-badge">{g.round}</span>
-                          <span className="poster-time-badge">{g.category}</span>
-                        </div>
+              {/* Games */}
+              <div style={{padding:"10px 0 0"}}>
+                {gamesOn(selDate).length===0 && <div className="empty" style={{color:"white"}}>No hay partidos en esta fecha</div>}
+                {gamesOn(selDate).map((g)=>{
+                  const t1=getTeam(g.team1), t2=getTeam(g.team2);
+                  if(!t1||!t2) return null;
+                  const logo1=getLogo(t1.id), logo2=getLogo(t2.id);
+                  return <div key={g.id}>
+                    <div className="poster-time-row">
+                       <span className="poster-time-badge">{g.time}</span>
+                      <span className="poster-time-badge">{g.round}</span>
+                      <span className="poster-time-badge">{g.category}</span>
+                    </div>
                         <div className="poster-game">
                           {/* Team 1 */}
                           <div className="poster-team-blk">
@@ -610,7 +691,6 @@ Genera un resumen breve y profesional (en español) que incluya:
                   <div className="poster-ft">{venue}</div>
                 </div>
               </div>
-          }
         </>}
 
         {/* ANÁLISIS IA */}
