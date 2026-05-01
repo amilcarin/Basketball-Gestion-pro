@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { GoogleGenAI } from "@google/genai";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, User, Layout, Image as ImageIcon, Trash2, Camera, UserPlus } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 
 const MONTHS_S = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MONTHS_L = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -25,9 +26,31 @@ function formatDateES(date) {
 
 const LS_KEY = "bk_torneo_v1";
 const LS_LOGOS = "bk_torneo_logos_v1";
+const LS_PLAYER_PHOTOS = "bk_torneo_player_photos_v1";
 
 function loadState() {
-  try { const raw = localStorage.getItem(LS_KEY); if (!raw) return null; return JSON.parse(raw); } catch { return null; }
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    // Migration: ensure all teams have a players array
+    if (state.teams) {
+      state.teams = state.teams.map(t => ({
+        ...t, 
+        players: (t.players || []).map(p => ({
+          ...p,
+          isStarter: p.isStarter !== undefined ? p.isStarter : true,
+          x: p.x || 50,
+          y: p.y || 50
+        })),
+        pf: t.pf || 0,
+        pa: t.pa || 0,
+        wins: t.wins || 0,
+        losses: t.losses || 0
+      }));
+    }
+    return state;
+  } catch { return null; }
 }
 function saveState(state) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
@@ -50,13 +73,31 @@ function removeLogo(teamId) {
   } catch {}
 }
 
+function loadPlayerPhotos() {
+  try { const raw = localStorage.getItem(LS_PLAYER_PHOTOS); if (!raw) return {}; return JSON.parse(raw); } catch { return {}; }
+}
+function savePlayerPhoto(playerId, base64) {
+  try {
+    const photos = loadPlayerPhotos();
+    photos[playerId] = base64;
+    localStorage.setItem(LS_PLAYER_PHOTOS, JSON.stringify(photos));
+  } catch { alert("Imagen muy pesada. Intenta con una más pequeña."); }
+}
+function removePlayerPhoto(playerId) {
+  try {
+    const photos = loadPlayerPhotos();
+    delete photos[playerId];
+    localStorage.setItem(LS_PLAYER_PHOTOS, JSON.stringify(photos));
+  } catch {}
+}
+
 const INIT_TEAMS = [
-  { id: 1, name: "Sello Oro",           category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0 },
-  { id: 2, name: "Llamas Negras",        category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0 },
-  { id: 3, name: "Los Esclavos",         category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0 },
-  { id: 4, name: "Los Esclavos Jr.",     category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0 },
-  { id: 5, name: "Super Stars",          category: "Femenino",  wins: 0, losses: 0, pf: 0, pa: 0 },
-  { id: 6, name: "Magisterio Femenino",  category: "Femenino",  wins: 0, losses: 0, pf: 0, pa: 0 },
+  { id: 1, name: "Sello Oro",           category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0, players: [] },
+  { id: 2, name: "Llamas Negras",        category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0, players: [] },
+  { id: 3, name: "Los Esclavos",         category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0, players: [] },
+  { id: 4, name: "Los Esclavos Jr.",     category: "Masculino", wins: 0, losses: 0, pf: 0, pa: 0, players: [] },
+  { id: 5, name: "Super Stars",          category: "Femenino",  wins: 0, losses: 0, pf: 0, pa: 0, players: [] },
+  { id: 6, name: "Magisterio Femenino",  category: "Femenino",  wins: 0, losses: 0, pf: 0, pa: 0, players: [] },
 ];
 
 const CSS = `
@@ -245,6 +286,243 @@ const CSS = `
   white-space: pre-wrap;
   color: #cbd5e1;
 }
+
+/* Court Styles */
+.court-container {
+  perspective: 1200px;
+  padding: 20px 0 60px;
+  display: flex;
+  justify-content: center;
+}
+.court {
+  width: 100%;
+  max-width: 600px;
+  aspect-ratio: 1 / 1.2;
+  background: #78350f; /* Wood base */
+  background-image: 
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 40px),
+    linear-gradient(to bottom, rgba(0,0,0,0.2), transparent);
+  border: 4px solid #451a03;
+  border-radius: 4px;
+  position: relative;
+  overflow: visible;
+  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-style: preserve-3d;
+}
+
+.court.view-3d {
+  transform: rotateX(40deg) rotateZ(0deg);
+  box-shadow: 
+    0 20px 50px rgba(0,0,0,0.5),
+    0 0 0 10px #451a03;
+}
+
+.court-line { position: absolute; border: 2px solid rgba(255,255,255,0.5); pointer-events: none; }
+.court-mid { width: 100%; top: 0; left: 0; border-top: 2px solid rgba(255,255,255,0.5); }
+.court-circle { width: 30%; aspect-ratio: 1; border-radius: 50%; top: 0%; left: 50%; transform: translate(-50%, -50%); }
+.court-paint { width: 40%; height: 35%; bottom: 0; left: 50%; transform: translateX(-50%); border: 2px solid rgba(255,255,255,0.5); background: rgba(234,88,12,0.1); }
+.court-3pt { width: 90%; height: 60%; bottom: -10%; left: 50%; transform: translateX(-50%); border: 2px solid rgba(255,255,255,0.5); border-radius: 50% / 40%; }
+.court-rim { width: 10%; aspect-ratio: 1; border: 2px solid #ef4444; border-radius: 50%; bottom: 8%; left: 50%; transform: translateX(-50%); position: absolute; }
+
+.player-bubble {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 70px;
+  cursor: grab;
+  z-index: 10;
+  transform-style: preserve-3d;
+}
+
+.view-3d .player-bubble {
+  transform: translateZ(20px) rotateX(-40deg); /* Counter-rotate to stay upright */
+}
+.player-photo-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: 2px solid var(--orange);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+.player-photo-circle img { width: 100%; height: 100%; object-fit: cover; }
+.player-info-card {
+  background: rgba(0,0,0,0.8);
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: center;
+  min-width: 60px;
+}
+.player-num-badge {
+  font-family: 'Oswald', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.player-name-lbl {
+  font-size: 9px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+/* ID Cards Styles */
+.id-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+.id-card {
+  width: 320px;
+  height: 190px;
+  background: #fff;
+  color: #000;
+  border-radius: 12px;
+  display: flex;
+  overflow: hidden;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  border: 1px solid #ddd;
+  position: relative;
+}
+.id-card-side {
+  width: 12px;
+  background: var(--orange);
+}
+.id-card-main {
+  flex: 1;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.id-card-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 6px;
+}
+.id-tourney-name {
+  font-family: 'Oswald', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.id-card-body {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+}
+.id-photo-frame {
+  width: 75px;
+  height: 95px;
+  background: #f1f5f9;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.id-photo-frame img { width: 100%; height: 100%; object-fit: cover; }
+.id-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.id-player-name {
+  font-family: 'Oswald', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.id-player-num {
+  font-family: 'Oswald', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--orange);
+}
+.id-meta-row {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.id-team-name {
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Roster Poster Grid */
+.roster-poster {
+  background: linear-gradient(135deg, #020617 0%, #0f172a 100%);
+  padding: 40px;
+  border-radius: 32px;
+  border: 4px solid var(--orange);
+}
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 20px;
+  margin-top: 30px;
+}
+.roster-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+}
+.roster-photo {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #1e293b;
+  margin: 0 auto 12px;
+  overflow: hidden;
+  border: 2px solid var(--orange);
+}
+.roster-photo img { width: 100%; height: 100%; object-fit: cover; }
+.roster-photo:hover .photo-overlay { opacity: 1 !important; }
+.bench-slot:hover { background: rgba(255,255,255,0.05); border-color: var(--orange) !important; }
+.roster-name { font-family: 'Oswald', sans-serif; font-size: 16px; font-weight: 700; color: #fff; text-transform: uppercase; }
+.roster-num { font-size: 14px; font-weight: 800; color: var(--gold); margin-top: 2px; }
+
+@media print {
+  .id-cards-grid { 
+    display: grid !important; 
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+  .id-card { 
+    break-inside: avoid; 
+    box-shadow: none !important; 
+    border: 1px solid #000 !important;
+    page-break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .roster-poster { border: 2px solid #000 !important; background: #fff !important; }
+  .roster-card { border: 1px solid #000 !important; }
+  .roster-name { color: #000 !important; }
+}
 `;
 
 export default function App() {
@@ -255,14 +533,22 @@ export default function App() {
   const [venue,setVenue] = useState(saved?.venue ?? "Salon Seno Zulema");
   const [tourney,setTourney] = useState(saved?.tourney ?? "TORNEO RELAMPAGO 2025");
   const [logos,setLogos] = useState(loadLogos);
+  const [playerPhotos,setPlayerPhotos] = useState(loadPlayerPhotos);
   const [selDate,setSelDate] = useState(isoDate(new Date()));
   const [catFilter,setCatFilter] = useState("Todos");
   const [newGame,setNewGame] = useState({team1:"",team2:"",date:isoDate(new Date()),time:"10:00",category:"Masculino",round:"Fase Regular"});
   const [selGameId,setSelGameId] = useState(null);
   const [scores,setScores] = useState({s1:"",s2:""});
   const [newTeam,setNewTeam] = useState({name:"",category:"Masculino"});
+  const [newPlayer,setNewPlayer] = useState({name:"",number:"",position:"Escolta",isStarter:true});
+  const [selTeamIdForPlantilla,setSelTeamIdForPlantilla] = useState(null);
+  const [selTeamIdForFormation,setSelTeamIdForFormation] = useState(null);
+  const [selTeamIdForCards,setSelTeamIdForCards] = useState(null);
+  const [is3DView, setIs3DView] = useState(true);
   const fileInputRef = useRef(null);
+  const playerFileInputRef = useRef(null);
   const [uploadingFor,setUploadingFor] = useState(null);
+  const [uploadingForPlayer,setUploadingForPlayer] = useState(null);
 
   const [aiAnalysis, setAiAnalysis] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -345,12 +631,73 @@ export default function App() {
   const removeGame = id => setGames(p=>p.filter(g=>g.id!==id));
   const addTeam = () => {
     if(!newTeam.name.trim()) return;
-    setTeams(p=>[...p,{id:Date.now(),name:newTeam.name.trim(),category:newTeam.category,wins:0,losses:0,pf:0,pa:0}]);
+    setTeams(p=>[...p,{id:Date.now(),name:newTeam.name.trim(),category:newTeam.category,wins:0,losses:0,pf:0,pa:0,players:[]}]);
     setNewTeam({name:"",category:"Masculino"});
   };
   const removeTeam = id => {
     handleLogoRemove(id);
+    const team = teams.find(t=>t.id===id);
+    if(team) team.players.forEach(p=>removePlayerPhoto(p.id));
     setTeams(p=>p.filter(t=>t.id!==id));
+  };
+
+  const addPlayer = (teamId) => {
+    if(!newPlayer.name.trim() || !newPlayer.number) return;
+    setTeams(p=>p.map(t=>t.id===teamId ? {...t, players:[...(t.players || []), {id:Date.now(), name:newPlayer.name, number:newPlayer.number, position:newPlayer.position, x:50, y:50, isStarter: newPlayer.isStarter}]} : t));
+    setNewPlayer({name:"",number:"",position:"Escolta",isStarter:true});
+  };
+  const togglePlayerStatus = (teamId, playerId) => {
+    setTeams(p=>p.map(t=>t.id===teamId ? {...t, players:(t.players || []).map(pl=>pl.id===playerId ? {...pl, isStarter: !pl.isStarter} : pl)} : t));
+  };
+  const removePlayer = (teamId, playerId) => {
+    removePlayerPhoto(playerId);
+    setTeams(p=>p.map(t=>t.id===teamId ? {...t, players:(t.players || []).filter(pl=>pl.id!==playerId)} : t));
+  };
+  const setPlayerPos = (teamId, playerId, x, y) => {
+    setTeams(p=>p.map(t=>t.id===teamId ? {...t, players:(t.players || []).map(pl=>pl.id===playerId ? {...pl, x: Number(Math.max(5, Math.min(95, x)).toFixed(2)), y: Number(Math.max(5, Math.min(95, y)).toFixed(2))} : pl)} : t));
+  };
+
+  const autoFormation = (teamId) => {
+    const team = teams.find(t => t.id === teamId);
+    if (!team) return;
+    const starters = (team.players || []).filter(p => p.isStarter);
+    // Standard 2-1-2 basketball positions (roughly) based on bottom rim
+    const pos = [
+      {x: 50, y: 85}, // PG
+      {x: 25, y: 65}, // SG
+      {x: 75, y: 65}, // SF
+      {x: 30, y: 35}, // PF
+      {x: 70, y: 35}, // C
+      {x: 50, y: 20}, // Extra
+    ];
+    setTeams(p => p.map(t => t.id === teamId ? {
+      ...t, 
+      players: (t.players || []).map((pl, idx) => {
+        if (!pl.isStarter) return pl;
+        // Find starter index to assign position
+        const sIdx = starters.findIndex(s => s.id === pl.id);
+        const coords = pos[sIdx] || {x: 50, y: 50};
+        return {...pl, x: coords.x, y: coords.y};
+      })
+    } : t));
+  };
+
+  const handlePlayerPhotoClick = (playerId) => {
+    setUploadingForPlayer(playerId);
+    playerFileInputRef.current.click();
+  };
+  const handlePlayerFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file || !uploadingForPlayer) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target.result;
+      savePlayerPhoto(uploadingForPlayer, base64);
+      setPlayerPhotos(prev => ({...prev, [uploadingForPlayer]: base64}));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+    setUploadingForPlayer(null);
   };
   const updateTime = (id,t) => setGames(p=>p.map(g=>g.id===id?{...g,time:t}:g));
   const resetAll = () => {
@@ -403,19 +750,40 @@ Genera un resumen breve y profesional (en español) que incluya:
     }
   };
 
-  const TABS=[{id:"standings",label:"Tabla"},{id:"schedule",label:"Calendario"},{id:"scores",label:"Marcador"},{id:"poster",label:"Poster"},{id:"ai",label:"Análisis IA"},{id:"teams",label:"Equipos"}];
+  const TABS=[
+    {id:"standings",label:"Tabla"},
+    {id:"schedule",label:"Calendario"},
+    {id:"scores",label:"Marcador"},
+    {id:"formation",label:"Formación"},
+    {id:"roster",label:"Plantilla"},
+    {id:"cards",label:"Carnets"},
+    {id:"poster",label:"Poster"},
+    {id:"ai",label:"Análisis IA"},
+    {id:"teams",label:"Equipos"}
+  ];
 
   const TeamLogo = ({teamId, size="sm"}) => {
     const src = getLogo(teamId);
     const cls = size==="lg" ? "team-logo-lg" : size==="md" ? "team-logo-md" : "team-logo-sm";
     if (src) return <img src={src} className={cls} alt="" />;
-    return null;
+    return <div className={cls} style={{display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg3)",fontSize:size==="lg"?"32px":"12px",fontWeight:800,color:"var(--muted)"}}>{getTeam(teamId)?.name[0]}</div>;
+  };
+
+  const PlayerPhoto = ({playerId, size="sm"}) => {
+    const src = playerPhotos[playerId];
+    const style = size === "lg" ? {width:80,height:80} : {width:48,height:48};
+    return (
+      <div className="player-photo-circle" style={style}>
+        {src ? <img src={src} alt="" /> : <User size={24} className="text-muted" />}
+      </div>
+    );
   };
 
   return (
     <div className="bk">
       <style>{CSS}</style>
       <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFileChange} />
+      <input ref={playerFileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePlayerFileChange} />
 
       <div className="container">
         <header className="hdr">
@@ -594,34 +962,260 @@ Genera un resumen breve y profesional (en español) que incluya:
           </div>
         </>}
 
-        {/* MARCADOR */}
-        {tab==="scores" && <>
+        {/* FORMACIÓN */}
+        {tab==="formation" && (
           <div className="card">
-            <div className="card-ttl">Registrar Marcador</div>
-            {pending.length===0
-              ? <div className="empty"><div className="empty-t">Sin partidos pendientes. Agrega partidos en Calendario.</div></div>
-              : <><div className="fr"><label className="lbl">Seleccionar Partido</label><select className="sel" value={selGameId||""} onChange={e=>setSelGameId(+e.target.value||null)}><option value="">Elige un partido...</option>{pending.map(g=>{const t1=getTeam(g.team1),t2=getTeam(g.team2);if(!t1||!t2)return null;return<option key={g.id} value={g.id}>{g.date} {g.time} — {t1.name} vs {t2.name}</option>;})}</select></div>
-                {selGameId&&(()=>{const g=games.find(x=>x.id===selGameId);if(!g)return null;const t1=getTeam(g.team1),t2=getTeam(g.team2);return<><hr className="divider"/><div style={{textAlign:"center",marginBottom:"16px"}}><span className={`rnd ${g.round==="Final"?"rnd-fin":""}`} style={{display:"inline-block",marginBottom:"6px"}}>{g.round}</span><div style={{fontSize:"11px",color:"var(--muted)"}}>{g.date} - {g.time}</div></div>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",marginBottom:"16px"}}>
-                  <div style={{flex:1,textAlign:"center"}}>
-                    <TeamLogo teamId={t1.id} size="md"/>
-                    <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:"15px",fontWeight:700,marginBottom:"10px"}}>{t1.name}</div>
-                    <input type="number" className="sc-inp" value={scores.s1} onChange={e=>setScores({...scores,s1:e.target.value})} placeholder="0" min={0}/>
+            <div className="card-ttl" style={{justifyContent:"space-between", width:"100%"}}>
+              <div style={{display:"flex", alignItems:"center", gap:"8px"}}>
+                <Layout size={18} /> Formación de Equipo
+              </div>
+              {selTeamIdForFormation && (
+                <button 
+                  className={`pill ${is3DView ? "on" : ""}`} 
+                  onClick={() => setIs3DView(!is3DView)}
+                  style={{fontSize:"10px"}}
+                >
+                  {is3DView ? "MODO 2D" : "MODO 3D"}
+                </button>
+              )}
+            </div>
+            <div className="fr">
+              <label className="lbl">Seleccionar Equipo</label>
+              <select className="sel" value={selTeamIdForFormation||""} onChange={e=>setSelTeamIdForFormation(+e.target.value||null)}>
+                <option value="">Elegir equipo...</option>
+                {teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+
+            {selTeamIdForFormation && (()=>{
+              const team = getTeam(selTeamIdForFormation);
+              if(!team) return null;
+              return (
+                <div style={{marginTop:"10px"}}>
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px"}}>
+                    <div className="notice" style={{marginBottom:0}}>Arrastra los titulares {is3DView ? "(Vista 3D)" : "(Vista 2D)"}</div>
+                    <button className="btn btn-s" style={{background:"var(--orange)", color:"white"}} onClick={() => autoFormation(team.id)}>Auto-Formación</button>
                   </div>
-                  <div style={{fontFamily:"'Oswald',sans-serif",fontSize:"18px",fontWeight:700,color:"var(--muted)"}}>VS</div>
-                  <div style={{flex:1,textAlign:"center"}}>
-                    <TeamLogo teamId={t2.id} size="md"/>
-                    <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:"15px",fontWeight:700,marginBottom:"10px"}}>{t2.name}</div>
-                    <input type="number" className="sc-inp" value={scores.s2} onChange={e=>setScores({...scores,s2:e.target.value})} placeholder="0" min={0}/>
+                  
+                  <div className="court-container">
+                    <div className={`court ${is3DView ? "view-3d" : ""}`} id="court-area">
+                      {/* Court lines - Half court layout */}
+                      <div className="court-line court-mid"></div>
+                      <div className="court-line court-circle"></div>
+                      <div className="court-line court-paint"></div>
+                      <div className="court-line court-3pt"></div>
+                      <div className="court-rim"></div>
+
+                      {(team.players || []).filter(p => p.isStarter).map(p => (
+                        <motion.div
+                          key={p.id}
+                          className="player-bubble"
+                          drag
+                          dragMomentum={false}
+                          dragElastic={0}
+                          onDragEnd={(e, info) => {
+                            const court = document.getElementById("court-area");
+                            if(court) {
+                              const rect = court.getBoundingClientRect();
+                              // Use the drop coordinate relative to the court's current visual rect
+                              const xP = ((info.point.x - rect.left) / rect.width) * 100;
+                              const yP = ((info.point.y - rect.top) / rect.height) * 100;
+                              setPlayerPos(team.id, p.id, xP, yP);
+                            }
+                          }}
+                          style={{ 
+                            position: "absolute", 
+                            left: `${p.x || 50}%`,
+                            top: `${p.y || 50}%`,
+                            x: "-50%", 
+                            y: "-50%",
+                            zIndex: 100
+                          }}
+                        >
+                          <div className="player-photo-circle" style={{borderColor: is3DView ? "var(--gold)" : "var(--orange)"}}>
+                            {playerPhotos[p.id] ? <img src={playerPhotos[p.id]} alt="" /> : <User size={20} />}
+                          </div>
+                          <div className="player-info-card">
+                            <div className="player-num-badge">#{p.number}</div>
+                            <div className="player-name-lbl">{p.name}</div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Bench Area */}
+                  <div style={{marginTop:"40px"}}>
+                    <div className="card-ttl"><User size={16}/> Suplentes (Banquillo) - Toca para pasar a cancha</div>
+                    <div style={{display:"flex", gap:"12px", overflowX:"auto", paddingBottom:"10px", minHeight:"80px"}}>
+                      {(team.players || []).filter(p => !p.isStarter).length === 0 ? (
+                        <div style={{fontSize:"12px", color:"var(--muted)", fontStyle:"italic", marginTop:"10px"}}>No hay suplentes asignados</div>
+                      ) : (
+                        (team.players || []).filter(p => !p.isStarter).map(p => (
+                          <div 
+                            key={p.id} 
+                            style={{display:"flex", flexDirection:"column", alignItems:"center", gap:"6px", minWidth:"80px", cursor:"pointer", padding:"8px", borderRadius:"12px", border:"1px solid transparent"}}
+                            onClick={() => togglePlayerStatus(team.id, p.id)}
+                            className="bench-slot"
+                          >
+                            <div className="player-photo-circle" style={{width:40, height:40}}>
+                              {playerPhotos[p.id] ? <img src={playerPhotos[p.id]} alt="" /> : <User size={18} />}
+                            </div>
+                            <div style={{fontSize:"10px", fontWeight:700}}>#{p.number}</div>
+                            <div style={{fontSize:"9px", opacity:0.8, textAlign:"center", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", width:"100%"}}>{p.name}</div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <button className="btn btn-full btn-s" style={{marginTop:"20px"}} onClick={() => window.print()}>Imprimir Formación</button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* PLANTILLA */}
+        {tab==="roster" && (
+          <div className="card">
+            <div className="card-ttl"><ImageIcon size={18} /> Plantilla Oficial</div>
+            <div className="fr">
+              <label className="lbl">Seleccionar Equipo</label>
+              <select className="sel" value={selTeamIdForPlantilla||""} onChange={e=>setSelTeamIdForPlantilla(+e.target.value||null)}>
+                <option value="">Elegir equipo...</option>
+                {teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+
+            {selTeamIdForPlantilla && (()=>{
+              const team = getTeam(selTeamIdForPlantilla);
+              if(!team) return null;
+              return (
+                <div className="roster-poster" id="roster-print">
+                  <div style={{textAlign:"center"}}>
+                    <TeamLogo teamId={team.id} size="lg" />
+                    <h2 style={{fontFamily:"'Oswald',sans-serif",fontSize:"32px",fontWeight:800,textTransform:"uppercase",letterSpacing:"2px",color:"#fff"}}>{team.name}</h2>
+                    <p style={{color:"var(--orange)",textTransform:"uppercase",letterSpacing:"3px",fontSize:"12px",fontWeight:700,marginTop:"4px"}}>{team.category} • Temporada 2025</p>
+                  </div>
+                  
+                  {(!team.players || team.players.length === 0) ? (
+                    <div className="empty" style={{color:"rgba(255,255,255,0.2)"}}>No hay jugadores registrados en este equipo</div>
+                  ) : (
+                    <div className="roster-grid">
+                      {team.players.map(p => (
+                        <div key={p.id} className="roster-card">
+                          <div 
+                            className="roster-photo" 
+                            style={{cursor:"pointer", position:"relative"}} 
+                            onClick={()=>handlePlayerPhotoClick(p.id)}
+                            title="Haz clic para subir o cambiar foto"
+                          >
+                            {playerPhotos[p.id] ? (
+                              <img src={playerPhotos[p.id]} alt="" />
+                            ) : (
+                              <div style={{display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100%", opacity:0.5}}>
+                                <Camera size={24} />
+                                <div style={{fontSize:"8px", marginTop:"4px"}}>SUBIR</div>
+                              </div>
+                            )}
+                            <div className="photo-overlay" style={{
+                              position:"absolute", bottom:0, left:0, right:0, background:"rgba(0,0,0,0.6)", 
+                              color:"white", fontSize:"8px", padding:"2px 0", opacity:0, transition:"0.2s"
+                            }}>EDITAR</div>
+                          </div>
+                          <div className="roster-name">{p.name}</div>
+                          <div className="roster-num">#{p.number}</div>
+                          <div style={{fontSize:"10px",color:"var(--muted)",textTransform:"uppercase",marginTop:4}}>{p.position}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button className="btn-print" style={{marginTop:"40px"}} onClick={() => window.print()}>Descargar como Fotografía</button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+        {/* MARCADOR */}
+        {tab==="scores" && (
+          <>
+            <div className="card">
+              <div className="card-ttl">Registrar Marcador</div>
+              {pending.length===0
+                ? <div className="empty"><div className="empty-t">Sin partidos pendientes. Agrega partidos en Calendario.</div></div>
+                : <><div className="fr"><label className="lbl">Seleccionar Partido</label><select className="sel" value={selGameId||""} onChange={e=>setSelGameId(+e.target.value||null)}><option value="">Elige un partido...</option>{pending.map(g=>{const t1=getTeam(g.team1),t2=getTeam(g.team2);if(!t1||!t2)return null;return<option key={g.id} value={g.id}>{g.date} {g.time} — {t1.name} vs {t2.name}</option>;})}</select></div>
+                  {selGameId&&(()=>{const g=games.find(x=>x.id===selGameId);if(!g)return null;const t1=getTeam(g.team1),t2=getTeam(g.team2);return<><hr className="divider"/><div style={{textAlign:"center",marginBottom:"16px"}}><span className={`rnd ${g.round==="Final"?"rnd-fin":""}`} style={{display:"inline-block",marginBottom:"6px"}}>{g.round}</span><div style={{fontSize:"11px",color:"var(--muted)"}}>{g.date} - {g.time}</div></div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",marginBottom:"16px"}}>
+                    <div style={{flex:1,textAlign:"center"}}>
+                      <TeamLogo teamId={t1.id} size="md"/>
+                      <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:"15px",fontWeight:700,marginBottom:"10px"}}>{t1.name}</div>
+                      <input type="number" className="sc-inp" value={scores.s1} onChange={e=>setScores({...scores,s1:e.target.value})} placeholder="0" min={0}/>
+                    </div>
+                    <div style={{fontFamily:"'Oswald',sans-serif",fontSize:"18px",fontWeight:700,color:"var(--muted)"}}>VS</div>
+                    <div style={{flex:1,textAlign:"center"}}>
+                      <TeamLogo teamId={t2.id} size="md"/>
+                      <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:"15px",fontWeight:700,marginBottom:"10px"}}>{t2.name}</div>
+                      <input type="number" className="sc-inp" value={scores.s2} onChange={e=>setScores({...scores,s2:e.target.value})} placeholder="0" min={0}/>
+                    </div>
+                  </div>
+                  {scores.s1!==""&&scores.s2!==""&&<div style={{textAlign:"center",marginBottom:"12px",fontSize:"13px",color:"var(--muted)"}}>{+scores.s1>+scores.s2?`Ganador: ${t1.name}`:+scores.s2>+scores.s1?`Ganador: ${t2.name}`:"Empate"}</div>}
+                  <button className="btn btn-g btn-full" onClick={recordScore}>CONFIRMAR MARCADOR</button></>;})()} </>}
+            </div>
+            {completed.length>0&&<div className="card"><div className="card-ttl">Resultados ({completed.length})</div>{completed.slice().reverse().map(g=>{const t1=getTeam(g.team1),t2=getTeam(g.team2);if(!t1||!t2)return null;return<div key={g.id} className="game done"><div className="gm-meta"><span className="gm-time">{g.time}</span><span style={{fontSize:"10px",color:"var(--muted)"}}>{g.date}</span><span className={`rnd ${g.round==="Final"?"rnd-fin":""}`}>{g.round}</span></div><div className="matchup"><div className="team-s"><TeamLogo teamId={t1.id} size="sm"/><div className="team-nm" style={{color:g.score1>g.score2?"var(--green)":"var(--muted)"}}>{t1.name}</div></div><div className="sc-area"><div className={`sc ${g.score1>g.score2?"sc-w":"sc-l"}`}>{g.score1}</div><div className="vs">-</div><div className={`sc ${g.score2>g.score1?"sc-w":"sc-l"}`}>{g.score2}</div></div><div className="team-s" style={{textAlign:"right"}}><TeamLogo teamId={t2.id} size="sm"/><div className="team-nm" style={{color:g.score2>g.score1?"var(--green)":"var(--muted)"}}>{t2.name}</div></div></div></div>;})} </div>}
+          </>
+        )}
+
+        {/* CARNETS */}
+        {tab==="cards" && (
+          <div className="card">
+            <div className="card-ttl"><User size={18} /> Carnets de Jugador</div>
+            <div className="fr">
+              <label className="lbl">Seleccionar Equipo</label>
+              <select className="sel" value={selTeamIdForCards||""} onChange={e=>setSelTeamIdForCards(+e.target.value||null)}>
+                <option value="">Elegir equipo...</option>
+                {teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+
+            {selTeamIdForCards && (()=>{
+              const team = getTeam(selTeamIdForCards);
+              if(!team) return null;
+              return (
+                <div style={{marginTop:"20px"}}>
+                  <button className="btn btn-full btn-p" style={{marginBottom:"20px"}} onClick={() => window.print()}>IMPRIMIR CARNETS</button>
+                  <div className="id-cards-grid">
+                    {(team.players || []).map(p => (
+                      <div key={p.id} className="id-card">
+                        <div className="id-card-side"></div>
+                        <div className="id-card-main">
+                          <div className="id-card-hdr">
+                            <div className="id-tourney-name">{tourney}</div>
+                            <div style={{opacity:0.6}}><TeamLogo teamId={team.id} size="sm" /></div>
+                          </div>
+                          <div className="id-card-body">
+                            <div className="id-photo-frame">
+                              {playerPhotos[p.id] ? <img src={playerPhotos[p.id]} alt="" /> : <User size={32} style={{opacity:0.1,marginTop:30,marginLeft:20}} />}
+                            </div>
+                            <div className="id-info">
+                              <div className="id-player-name">{p.name}</div>
+                              <div className="id-player-num">#{p.number}</div>
+                              <div style={{fontSize:"11px", fontWeight:600, color:"#64748b"}}>{p.position}</div>
+                              <div className="id-meta-row">
+                                <div className="id-team-name">{team.name}</div>
+                                <div style={{fontSize:"9px", color:"#94a3b8"}}>ID: {p.id.toString().slice(-6)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                {scores.s1!==""&&scores.s2!==""&&<div style={{textAlign:"center",marginBottom:"12px",fontSize:"13px",color:"var(--muted)"}}>{+scores.s1>+scores.s2?`Ganador: ${t1.name}`:+scores.s2>+scores.s1?`Ganador: ${t2.name}`:"Empate"}</div>}
-                <button className="btn btn-g btn-full" onClick={recordScore}>CONFIRMAR MARCADOR</button></>;})()} </>}
+              );
+            })()}
           </div>
-          {completed.length>0&&<div className="card"><div className="card-ttl">Resultados ({completed.length})</div>{completed.slice().reverse().map(g=>{const t1=getTeam(g.team1),t2=getTeam(g.team2);if(!t1||!t2)return null;return<div key={g.id} className="game done"><div className="gm-meta"><span className="gm-time">{g.time}</span><span style={{fontSize:"10px",color:"var(--muted)"}}>{g.date}</span><span className={`rnd ${g.round==="Final"?"rnd-fin":""}`}>{g.round}</span></div><div className="matchup"><div className="team-s"><TeamLogo teamId={t1.id} size="sm"/><div className="team-nm" style={{color:g.score1>g.score2?"var(--green)":"var(--muted)"}}>{t1.name}</div></div><div className="sc-area"><div className={`sc ${g.score1>g.score2?"sc-w":"sc-l"}`}>{g.score1}</div><div className="vs">-</div><div className={`sc ${g.score2>g.score1?"sc-w":"sc-l"}`}>{g.score2}</div></div><div className="team-s" style={{textAlign:"right"}}><TeamLogo teamId={t2.id} size="sm"/><div className="team-nm" style={{color:g.score2>g.score1?"var(--green)":"var(--muted)"}}>{t2.name}</div></div></div></div>;})} </div>}
-        </>}
-
-        {/* POSTER */}
+        )}
         {tab==="poster" && <>
           <div className="card">
             <div className="card-ttl">Seleccionar Fecha para el Póster</div>
@@ -733,55 +1327,106 @@ Genera un resumen breve y profesional (en español) que incluya:
 
         {/* EQUIPOS */}
         {tab==="teams" && <>
-          <div className="card">
-            <div className="card-ttl">Configuracion del Torneo</div>
-            <div className="fr"><label className="lbl">Nombre del Torneo</label><input className="inp" value={tourney} onChange={e=>setTourney(e.target.value)}/></div>
-            <div className="fr"><label className="lbl">Lugar / Cancha</label><input className="inp" value={venue} onChange={e=>setVenue(e.target.value)}/></div>
-            <div className="notice">Los cambios se guardan automaticamente</div>
-            <button className="btn btn-reset" onClick={resetAll}>REINICIAR TORNEO COMPLETO</button>
-          </div>
-          <div className="card">
-            <div className="card-ttl">Agregar Equipo</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"9px",alignItems:"end"}}>
-              <div>
-                <div className="fr"><label className="lbl">Nombre del Equipo</label><input className="inp" value={newTeam.name} onChange={e=>setNewTeam({...newTeam,name:e.target.value})} placeholder="Ej: Los Aguilas"/></div>
-                <div className="fr" style={{marginBottom:0}}><label className="lbl">Categoria</label><select className="sel" value={newTeam.category} onChange={e=>setNewTeam({...newTeam,category:e.target.value})}><option>Masculino</option><option>Femenino</option></select></div>
+          {selTeamIdForPlantilla ? (
+            <div className="card">
+              <button className="btn btn-s" style={{marginBottom:"16px"}} onClick={()=>setSelTeamIdForPlantilla(null)}>← Volver a Equipos</button>
+              <div className="card-ttl">Gestionar Jugadores: {getTeam(selTeamIdForPlantilla)?.name}</div>
+              
+              <div className="fr">
+                <label className="lbl">Nuevo Jugador</label>
+                <div className="g2">
+                  <input className="inp" placeholder="Nombre completo" value={newPlayer.name} onChange={e=>setNewPlayer({...newPlayer,name:e.target.value})} />
+                  <input className="inp" type="number" placeholder="Número (#)" value={newPlayer.number} onChange={e=>setNewPlayer({...newPlayer,number:e.target.value})} />
+                </div>
               </div>
-              <button className="btn btn-p" style={{height:"38px",alignSelf:"flex-end"}} onClick={addTeam}>+</button>
+              <div className="fr">
+                <label className="lbl">Posición y Estado</label>
+                <div className="g2">
+                  <select className="sel" value={newPlayer.position} onChange={e=>setNewPlayer({...newPlayer,position:e.target.value})}>
+                    <option>Base</option>
+                    <option>Escolta</option>
+                    <option>Alero</option>
+                    <option>Ala-Pívot</option>
+                    <option>Pívot</option>
+                  </select>
+                  <select className="sel" value={newPlayer.isStarter ? "1" : "0"} onChange={e=>setNewPlayer({...newPlayer,isStarter:e.target.value==="1"})}>
+                    <option value="1">Titular</option>
+                    <option value="0">Suplente</option>
+                  </select>
+                </div>
+              </div>
+              <button className="btn btn-p btn-full" onClick={()=>addPlayer(selTeamIdForPlantilla)}><UserPlus size={18}/> Agregar Jugador</button>
+
+              <div style={{marginTop:"32px"}}>
+                <div className="card-ttl">Jugadores ({(getTeam(selTeamIdForPlantilla)?.players || []).length})</div>
+                {(getTeam(selTeamIdForPlantilla)?.players || []).map(p => (
+                  <div key={p.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px",background:"var(--bg)",borderRadius:"16px",marginBottom:"8px",border:"1px solid var(--border)"}}>
+                    <div style={{cursor:"pointer"}} onClick={()=>handlePlayerPhotoClick(p.id)}>
+                      <PlayerPhoto playerId={p.id} />
+                    </div>
+                    <div style={{flex:1}}>
+                      <div className="tnm">{p.name} <span className={`pill ${p.isStarter?"on":""}`} style={{fontSize:"8px", padding:"2px 8px"}} onClick={() => togglePlayerStatus(selTeamIdForPlantilla, p.id)}>{p.isStarter ? "Titular" : "Suplente"}</span></div>
+                      <div style={{fontSize:"11px",color:"var(--muted)"}}>#{p.number} • {p.position}</div>
+                    </div>
+                    <button className="btn btn-d" onClick={()=>removePlayer(selTeamIdForPlantilla, p.id)}><Trash2 size={14}/></button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="card">
-            <div className="card-ttl">Equipos Registrados ({teams.length})</div>
-            {teams.length===0
-              ? <div className="empty"><div className="empty-t">Sin equipos</div></div>
-              : teams.map(t=>{
-                  const logo = getLogo(t.id);
-                  return <div key={t.id} style={{display:"flex",alignItems:"center",gap:"10px",padding:"12px 0",borderBottom:"1px solid var(--border)"}}>
-                    {/* Logo */}
-                    <div style={{flexShrink:0}}>
-                      {logo
-                        ? <img src={logo} className="team-logo" alt={t.name} onClick={()=>handleLogoClick(t.id)} style={{cursor:"pointer"}} title="Toca para cambiar logo"/>
-                        : <div className="logo-placeholder" onClick={()=>handleLogoClick(t.id)} style={{cursor:"pointer"}} title="Subir logo">+</div>
-                      }
-                    </div>
-                    {/* Info */}
-                    <div style={{flex:1,minWidth:0}}>
-                      <div className="tnm" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div>
-                      <div style={{display:"flex",gap:"6px",marginTop:"4px",alignItems:"center",flexWrap:"wrap"}}>
-                        <span className={`cat ${t.category==="Masculino"?"cat-m":"cat-f"}`}>{t.category}</span>
-                        <span style={{fontSize:"11px",color:"var(--muted)"}}>{t.wins}G / {t.losses}P</span>
-                      </div>
-                      <div style={{display:"flex",gap:"6px",marginTop:"6px"}}>
-                        <button className="logo-upload-btn" onClick={()=>handleLogoClick(t.id)}>{logo?"Cambiar logo":"+ Logo"}</button>
-                        {logo && <button className="logo-remove-btn" onClick={()=>handleLogoRemove(t.id)}>X</button>}
-                      </div>
-                    </div>
-                    {/* Delete */}
-                    <button className="btn btn-d" onClick={()=>removeTeam(t.id)}>X</button>
-                  </div>;
-                })
-            }
-          </div>
+          ) : (
+            <>
+              <div className="card">
+                <div className="card-ttl">Configuracion del Torneo</div>
+                <div className="fr"><label className="lbl">Nombre del Torneo</label><input className="inp" value={tourney} onChange={e=>setTourney(e.target.value)}/></div>
+                <div className="fr"><label className="lbl">Lugar / Cancha</label><input className="inp" value={venue} onChange={e=>setVenue(e.target.value)}/></div>
+                <div className="notice">Los cambios se guardan automaticamente</div>
+                <button className="btn btn-reset" onClick={resetAll}>REINICIAR TORNEO COMPLETO</button>
+              </div>
+              <div className="card">
+                <div className="card-ttl">Agregar Equipo</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"9px",alignItems:"end"}}>
+                  <div>
+                    <div className="fr"><label className="lbl">Nombre del Equipo</label><input className="inp" value={newTeam.name} onChange={e=>setNewTeam({...newTeam,name:e.target.value})} placeholder="Ej: Los Aguilas"/></div>
+                    <div className="fr" style={{marginBottom:0}}><label className="lbl">Categoria</label><select className="sel" value={newTeam.category} onChange={e=>setNewTeam({...newTeam,category:e.target.value})}><option>Masculino</option><option>Femenino</option></select></div>
+                  </div>
+                  <button className="btn btn-p" style={{height:"38px",alignSelf:"flex-end"}} onClick={addTeam}>+</button>
+                </div>
+              </div>
+              <div className="card">
+                <div className="card-ttl">Equipos Registrados ({teams.length})</div>
+                {teams.length===0
+                  ? <div className="empty"><div className="empty-t">Sin equipos</div></div>
+                  : teams.map(t=>{
+                      const logo = getLogo(t.id);
+                      return <div key={t.id} style={{display:"flex",alignItems:"center",gap:"10px",padding:"12px 0",borderBottom:"1px solid var(--border)"}}>
+                        {/* Logo */}
+                        <div style={{flexShrink:0}}>
+                          {logo
+                            ? <img src={logo} className="team-logo" alt={t.name} onClick={()=>handleLogoClick(t.id)} style={{cursor:"pointer"}} title="Toca para cambiar logo"/>
+                            : <div className="logo-placeholder" onClick={()=>handleLogoClick(t.id)} style={{cursor:"pointer"}} title="Subir logo">+</div>
+                          }
+                        </div>
+                        {/* Info */}
+                        <div style={{flex:1,minWidth:0}}>
+                          <div className="tnm" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div>
+                          <div style={{display:"flex",gap:"6px",marginTop:"4px",alignItems:"center",flexWrap:"wrap"}}>
+                            <span className={`cat ${t.category==="Masculino"?"cat-m":"cat-f"}`}>{t.category}</span>
+                            <span style={{fontSize:"11px",color:"var(--muted)"}}>{t.wins}G / {t.losses}P</span>
+                          </div>
+                          <div style={{display:"flex",gap:"6px",marginTop:"6px"}}>
+                            <button className="logo-upload-btn" onClick={()=>handleLogoClick(t.id)}>{logo?"Cambiar logo":"+ Logo"}</button>
+                            <button className="logo-upload-btn" style={{background:"rgba(16,185,129,0.1)",color:"var(--green)",borderColor:"rgba(16,185,129,0.2)"}} onClick={()=>setSelTeamIdForPlantilla(t.id)}>Jugadores ({t.players?.length||0})</button>
+                            {logo && <button className="logo-remove-btn" onClick={()=>handleLogoRemove(t.id)}>X</button>}
+                          </div>
+                        </div>
+                        {/* Delete */}
+                        <button className="btn btn-d" onClick={()=>removeTeam(t.id)}>X</button>
+                      </div>;
+                    })
+                }
+              </div>
+            </>
+          )}
         </>}
 
         </main>
