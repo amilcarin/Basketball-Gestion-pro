@@ -235,11 +235,37 @@ const CSS = `
 .poster-ft { background: var(--bg2); padding: 16px; text-align: center; font-size: 18px; font-weight: 700; color: #fff; font-style: italic; letter-spacing: 2px; border-top: 1px solid rgba(255,255,255,0.05); text-transform: uppercase; }
 
 @media print {
-  @page { margin: 6mm; size: letter portrait; }
+  @page { margin: 10mm; size: auto; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-  .bk { background: #fff !important; padding: 0 !important; }
-  .hdr, .tabs, .filters, .suns, .btn-print, .notice, .warn { display: none !important; }
-  .body { padding: 0 !important; }
+  .bk { background: #fff !important; padding: 0 !important; color: #000 !important; }
+  .hdr, .tabs, .filters, .suns, .btn, button, .notice, .warn, .btn-print, .btn-full { display: none !important; }
+  .body { padding: 0 !important; display: block !important; }
+  .card { border: none !important; padding: 0 !important; background: transparent !important; }
+  
+  /* Formation Print specific */
+  .court-container { padding: 0 !important; page-break-inside: avoid; }
+  .court { 
+    border: 2px solid #000 !important; 
+    background: #fff !important; 
+    transform: none !important; 
+    box-shadow: none !important;
+    width: 90% !important;
+    margin: 0 auto !important;
+  }
+  .court-line { border-color: #000 !important; }
+  .court-paint { background: rgba(0,0,0,0.05) !important; border-color: #000 !important; }
+  .court-3pt, .court-circle, .court-mid { border-color: #000 !important; }
+  .court-rim { border-color: #000 !important; }
+  
+  .player-bubble { transform: none !important; }
+  .player-photo-circle { border-color: #000 !important; box-shadow: none !important; background: #fff !important; }
+  .player-info-card { background: #fff !important; color: #000 !important; border: 1px solid #333 !important; }
+  .player-num-badge, .player-name-lbl { color: #000 !important; }
+  
+  .bench-area { page-break-before: auto; page-break-inside: avoid; }
+  .bench-slot { border: 1px solid #ddd !important; background: #fff !important; color: #000 !important; }
+
+  /* Poster Print specific */
   .poster-wrap { display: block !important; }
   .poster { border-radius: 12px !important; border: 3px solid #000 !important; width: 100% !important; page-break-inside: avoid; box-shadow: none !important; }
   .poster-hdr { background: #f0f0f0 !important; border-bottom: 2px solid #000 !important; }
@@ -254,6 +280,25 @@ const CSS = `
   .poster-time-badge { background: #fff !important; border: 1px solid #000 !important; color: #000 !important; }
   .poster-logo-box { background: #ddd !important; }
   .poster-dates { color: #333 !important; border-top: 1px solid #000 !important; background: none !important; }
+
+  /* Cards Print specific */
+  .id-cards-grid { 
+    display: grid !important; 
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+  .id-card { 
+    break-inside: avoid; 
+    box-shadow: none !important; 
+    border: 1px solid #000 !important;
+    page-break-inside: avoid;
+  }
+  
+  /* Roster print */
+  .roster-poster { border: 2px solid #000 !important; background: #fff !important; padding: 20px !important; }
+  .roster-card { border: 1px solid #000 !important; background: #fff !important; color: #000 !important; }
+  .roster-name { color: #000 !important; }
+  .roster-num { color: #000 !important; }
 }
 
 .empty { text-align: center; padding: 60px 24px; color: var(--muted); }
@@ -505,24 +550,14 @@ const CSS = `
 .roster-name { font-family: 'Oswald', sans-serif; font-size: 16px; font-weight: 700; color: #fff; text-transform: uppercase; }
 .roster-num { font-size: 14px; font-weight: 800; color: var(--gold); margin-top: 2px; }
 
-@media print {
-  .id-cards-grid { 
-    display: grid !important; 
-    grid-template-columns: 1fr 1fr !important;
-    gap: 10px !important;
+  /* Consolidated page-break logic */
+  @media print {
+    .body-grid { display: block !important; }
+    .card { margin-bottom: 0 !important; }
+    .print-only { display: block !important; }
+    .no-print { display: none !important; }
+    .card-ttl { color: #000 !important; border-bottom: 2px solid #000 !important; margin-bottom: 15px !important; }
   }
-  .id-card { 
-    break-inside: avoid; 
-    box-shadow: none !important; 
-    border: 1px solid #000 !important;
-    page-break-inside: avoid;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  .roster-poster { border: 2px solid #000 !important; background: #fff !important; }
-  .roster-card { border: 1px solid #000 !important; }
-  .roster-name { color: #000 !important; }
-}
 `;
 
 export default function App() {
@@ -992,7 +1027,15 @@ Genera un resumen breve y profesional (en español) que incluya:
               if(!team) return null;
               return (
                 <div style={{marginTop:"10px"}}>
-                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px"}}>
+                  <div className="print-only" style={{display:"none"}}>
+                    <div style={{textAlign:"center", marginBottom:"20px"}}>
+                      <h1 style={{fontFamily:"Oswald", fontSize:"24px", color:"#000", textTransform:"uppercase"}}>{tourney}</h1>
+                      <h2 style={{fontFamily:"Oswald", fontSize:"18px", color:"#333", textTransform:"uppercase"}}>Formación: {team.name}</h2>
+                      <div style={{fontSize:"12px", color:"#666"}}>{venue} • Temporada 2025</div>
+                    </div>
+                  </div>
+
+                  <div className="no-print" style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"20px"}}>
                     <div className="notice" style={{marginBottom:0}}>Arrastra los titulares {is3DView ? "(Vista 3D)" : "(Vista 2D)"}</div>
                     <button className="btn btn-s" style={{background:"var(--orange)", color:"white"}} onClick={() => autoFormation(team.id)}>Auto-Formación</button>
                   </div>
@@ -1045,8 +1088,8 @@ Genera un resumen breve y profesional (en español) que incluya:
                   </div>
 
                   {/* Bench Area */}
-                  <div style={{marginTop:"40px"}}>
-                    <div className="card-ttl"><User size={16}/> Suplentes (Banquillo) - Toca para pasar a cancha</div>
+                  <div className="bench-area" style={{marginTop:"40px"}}>
+                    <div className="card-ttl"><User size={16}/> <span className="no-print">Suplentes (Banquillo) - Toca para pasar a cancha</span><span className="print-only" style={{display:"none"}}>Suplentes / Banquillo</span></div>
                     <div style={{display:"flex", gap:"12px", overflowX:"auto", paddingBottom:"10px", minHeight:"80px"}}>
                       {(team.players || []).filter(p => !p.isStarter).length === 0 ? (
                         <div style={{fontSize:"12px", color:"var(--muted)", fontStyle:"italic", marginTop:"10px"}}>No hay suplentes asignados</div>
